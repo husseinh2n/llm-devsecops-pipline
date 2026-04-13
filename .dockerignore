@@ -1,0 +1,13 @@
+.git
+.github
+__pycache__
+*.pyc
+*.pyo
+.env
+*.db
+data/
+tests/
+scripts/
+README.md
+.gitignore
+.dockerignore
