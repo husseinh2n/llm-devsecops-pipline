@@ -1,0 +1,139 @@
+rules:
+  # ────────────────────────────────────────────────────────────
+  #  SQL Injection
+  # ────────────────────────────────────────────────────────────
+  - id: sql-injection-fstring
+    patterns:
+      - pattern: |
+          $CONN.execute(f"... {$VAR} ...")
+    message: >
+      SQL Injection: user-controlled variable '$VAR' is directly interpolated
+      into a SQL query. Use parameterised queries with '?' placeholders instead.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-89"
+      owasp: "A3:2021"
+
+  - id: sql-injection-concat
+    patterns:
+      - pattern: |
+          $CONN.execute("..." + $VAR + "...")
+    message: >
+      SQL Injection: query is built with string concatenation. Use parameterised
+      queries to separate code from data.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-89"
+      owasp: "A3:2021"
+
+  # ────────────────────────────────────────────────────────────
+  #  Command Injection
+  # ────────────────────────────────────────────────────────────
+  - id: command-injection-os-system
+    patterns:
+      - pattern: os.system(...)
+    message: >
+      Command Injection: 'os.system()' passes the command to a shell and is
+      vulnerable to injection. Use 'subprocess.run()' with a list of arguments
+      and shell=False.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-78"
+      owasp: "A1:2021"
+
+  - id: command-injection-os-popen
+    patterns:
+      - pattern: os.popen(...)
+    message: >
+      Command Injection: 'os.popen()' is dangerous and deprecated. Replace with
+      'subprocess.run()' using a list of arguments.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-78"
+      owasp: "A1:2021"
+
+  - id: command-injection-subprocess-shell-true
+    patterns:
+      - pattern: subprocess.$FUNC(..., shell=True, ...)
+    message: >
+      Command Injection: 'shell=True' allows shell metacharacter injection.
+      Pass the command as a list and set shell=False.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-78"
+      owasp: "A1:2021"
+
+  # ────────────────────────────────────────────────────────────
+  #  Code Injection
+  # ────────────────────────────────────────────────────────────
+  - id: code-injection-eval
+    patterns:
+      - pattern: eval($X)
+    message: >
+      Code Injection: 'eval()' executes arbitrary Python. Use a safe expression
+      evaluator (e.g. 'ast.literal_eval' or a math parser library).
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-94"
+      owasp: "A3:2021"
+
+  # ────────────────────────────────────────────────────────────
+  #  Insecure Deserialization
+  # ────────────────────────────────────────────────────────────
+  - id: insecure-deserialization-pickle
+    patterns:
+      - pattern: pickle.loads(...)
+    message: >
+      Insecure Deserialization: 'pickle.loads()' can execute arbitrary code
+      when deserializing untrusted data. Use JSON or another safe format.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-502"
+      owasp: "A8:2021"
+
+  # ────────────────────────────────────────────────────────────
+  #  Cryptography
+  # ────────────────────────────────────────────────────────────
+  - id: weak-hash-md5
+    patterns:
+      - pattern: hashlib.md5(...)
+    message: >
+      Weak Cryptography: MD5 is cryptographically broken. Use
+      'hashlib.sha256()' at minimum, or 'bcrypt'/'argon2' for passwords.
+    languages: [python]
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: "CWE-327"
+      owasp: "A2:2021"
+
+  # ────────────────────────────────────────────────────────────
+  #  Debug / Exposure
+  # ────────────────────────────────────────────────────────────
+  - id: flask-debug-true
+    patterns:
+      - pattern: app.run(..., debug=True, ...)
+    message: >
+      Flask Debug Mode: running with debug=True in production exposes an
+      interactive debugger. Set debug via environment variable and ensure
+      it is False in production.
+    languages: [python]
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: "CWE-94"
+      owasp: "A5:2021"

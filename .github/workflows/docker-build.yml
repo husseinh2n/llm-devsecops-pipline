@@ -1,0 +1,46 @@
+name: Docker Build & Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Build & Smoke-test Image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t task-manager:${{ github.sha }} .
+
+      - name: Start container
+        run: |
+          docker run -d \
+            --name task-manager \
+            -p 5000:5000 \
+            task-manager:${{ github.sha }}
+          sleep 5
+
+      - name: Health check
+        run: |
+          STATUS=$(curl -s http://localhost:5000/health | python3 -c "import sys,json; print(json.load(sys.stdin)['status'])")
+          if [ "$STATUS" != "healthy" ]; then
+            echo "❌  Health check failed: $STATUS"
+            docker logs task-manager
+            exit 1
+          fi
+          echo "✅  Health check passed."
+
+      - name: Run unit tests
+        run: |
+          pip install pytest flask
+          pytest tests/ -v
+
+      - name: Clean up
+        if: always()
+        run: docker rm -f task-manager || true

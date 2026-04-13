@@ -1,0 +1,148 @@
+name: Security Scan
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ──────────────────────────────────────────────────────────────
+  #  Job 1: Static Analysis with Semgrep
+  # ──────────────────────────────────────────────────────────────
+  semgrep:
+    name: Semgrep SAST
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep:latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        run: |
+          semgrep \
+            --config .semgrep/rules.yml \
+            --config "p/python" \
+            --json \
+            --output semgrep-results.json \
+            . || true
+
+      - name: Upload Semgrep results
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-results
+          path: semgrep-results.json
+
+      - name: Check for critical findings
+        run: |
+          python3 - <<'EOF'
+          import json, sys
+          with open("semgrep-results.json") as f:
+              data = json.load(f)
+          findings = data.get("results", [])
+          critical = [r for r in findings if r.get("extra", {}).get("severity") == "ERROR"]
+          print(f"Total findings : {len(findings)}")
+          print(f"Critical (ERROR): {len(critical)}")
+          for c in critical:
+              print(f"  [{c['check_id']}] {c['path']}:{c['start']['line']} — {c['extra']['message']}")
+          if critical:
+              print("\n❌  Critical findings block this deployment.")
+              sys.exit(1)
+          EOF
+
+  # ──────────────────────────────────────────────────────────────
+  #  Job 2: Secret Scanning with TruffleHog
+  # ──────────────────────────────────────────────────────────────
+  trufflehog:
+    name: TruffleHog Secret Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # full history so TruffleHog can diff
+
+      - name: Run TruffleHog
+        id: trufflehog
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --json --only-verified
+        continue-on-error: true
+
+      - name: Save TruffleHog output
+        run: |
+          trufflehog filesystem . \
+            --json \
+            --no-update \
+            2>/dev/null | head -1000 > trufflehog-results.json || true
+          echo "TruffleHog scan complete."
+
+      - name: Upload TruffleHog results
+        uses: actions/upload-artifact@v4
+        with:
+          name: trufflehog-results
+          path: trufflehog-results.json
+
+      - name: Block on secrets found
+        run: |
+          if [ -s trufflehog-results.json ]; then
+            echo "❌  Secrets detected — deployment blocked."
+            cat trufflehog-results.json
+            exit 1
+          else
+            echo "✅  No verified secrets found."
+          fi
+
+  # ──────────────────────────────────────────────────────────────
+  #  Job 3: AI Remediation PR
+  #  Runs only when scans detect findings on push to main
+  # ──────────────────────────────────────────────────────────────
+  ai-remediation:
+    name: AI Auto-Remediation PR
+    runs-on: ubuntu-latest
+    needs: [semgrep, trufflehog]
+    # Run even if the scan jobs fail (i.e. findings were found)
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Download Semgrep results
+        uses: actions/download-artifact@v4
+        with:
+          name: semgrep-results
+        continue-on-error: true
+
+      - name: Download TruffleHog results
+        uses: actions/download-artifact@v4
+        with:
+          name: trufflehog-results
+        continue-on-error: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install google-generativeai requests
+
+      - name: Run AI remediation
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GH_TOKEN:       ${{ secrets.GH_PAT }}
+          GH_REPO:        ${{ github.repository }}
+          BASE_BRANCH:    ${{ github.ref_name }}
+        run: python scripts/ai_remediate.py
+
+      - name: Summary
+        run: echo "AI remediation complete — check open PRs for auto-generated fixes."
