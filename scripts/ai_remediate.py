@@ -314,7 +314,7 @@ def main() -> None:
         )
 
         # Polite rate-limit buffer between API calls
-        time.sleep(1)
+        time.sleep(5)
 
     if not pr_sections:
         print("No files were modified — nothing to PR.")

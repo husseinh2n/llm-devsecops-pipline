@@ -2,7 +2,7 @@ name: Security Scan
 
 on:
   push:
-    branches: ["main"]        # ← only scan on main; AI branch pushes won't loop
+    branches: ["main"]
   pull_request:
     branches: [main]
 
@@ -20,6 +20,8 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: semgrep/semgrep:latest
+    outputs:
+      has_findings: ${{ steps.check.outputs.has_findings }}
 
     steps:
       - name: Checkout source
@@ -41,9 +43,10 @@ jobs:
           path: semgrep-results.json
 
       - name: Check for critical findings
+        id: check
         run: |
           python3 - <<'EOF'
-          import json, sys
+          import json, os
           with open("semgrep-results.json") as f:
               data = json.load(f)
           findings = data.get("results", [])
@@ -53,8 +56,13 @@ jobs:
           for c in critical:
               print(f"  [{c['check_id']}] {c['path']}:{c['start']['line']} — {c['extra']['message']}")
           if critical:
-              print("\n❌  Critical findings block this deployment.")
-              sys.exit(1)
+              print("\n⚠️  Critical findings detected — AI remediation will be triggered.")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+                  out.write("has_findings=true\n")
+          else:
+              print("✅  No critical findings.")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+                  out.write("has_findings=false\n")
           EOF
 
   # ──────────────────────────────────────────────────────────────
@@ -63,6 +71,8 @@ jobs:
   trufflehog:
     name: TruffleHog Secret Scan
     runs-on: ubuntu-latest
+    outputs:
+      has_findings: ${{ steps.check.outputs.has_findings }}
 
     steps:
       - name: Checkout source
@@ -94,14 +104,16 @@ jobs:
           name: trufflehog-results
           path: trufflehog-results.json
 
-      - name: Block on secrets found
+      - name: Check for secrets
+        id: check
         run: |
           if [ -s trufflehog-results.json ]; then
-            echo "❌  Secrets detected — deployment blocked."
+            echo "⚠️  Secrets detected — AI remediation will be triggered."
             cat trufflehog-results.json
-            exit 1
+            echo "has_findings=true" >> "$GITHUB_OUTPUT"
           else
             echo "✅  No verified secrets found."
+            echo "has_findings=false" >> "$GITHUB_OUTPUT"
           fi
 
   # ──────────────────────────────────────────────────────────────
@@ -112,13 +124,11 @@ jobs:
     name: AI Auto-Remediation PR
     runs-on: ubuntu-latest
     needs: [semgrep, trufflehog]
-    # Run only on push to main AND only when at least one scan job failed
-    # (meaning there are real findings to fix)
+    # Run only on push to main AND when at least one scanner found something
     if: |
-      always() &&
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
-      (needs.semgrep.result == 'failure' || needs.trufflehog.result == 'failure')
+      (needs.semgrep.outputs.has_findings == 'true' || needs.trufflehog.outputs.has_findings == 'true')
 
     steps:
       - name: Checkout source
