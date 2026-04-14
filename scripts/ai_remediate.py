@@ -119,8 +119,7 @@ def git(*args: str) -> str:
 # ─── AI Remediation ───────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = textwrap.dedent("""
-    You are a senior security engineer and Python developer.
-    You will be given:
+    given:
       1. A description of a security vulnerability found by a static-analysis tool.
       2. The relevant source file content.
 
@@ -142,7 +141,8 @@ SYSTEM_PROMPT = textwrap.dedent("""
     - For MD5 passwords: replace with hashlib.sha256() + salt, or note that
       bcrypt should be used in production.
     - For hardcoded secrets: replace with os.environ.get('VAR_NAME') calls.
-    - Do NOT break the Flask routes or function signatures.
+    - Do NOT break the Flask routes, database functions, or existing function signatures.
+    - CRITICAL: Do NOT delete, rename, or break the `init_db()` function. It is required for the application to boot.
 """).strip()
 
 
@@ -158,7 +158,7 @@ def ask_gemini(vuln_description: str, file_content: str) -> tuple[str, str]:
         response = model.generate_content(
             [SYSTEM_PROMPT, prompt],
             generation_config=genai.types.GenerationConfig(
-                temperature=0.1,
+                temperature=0.2,
                 max_output_tokens=8192,
             ),
         )
